@@ -1,5 +1,10 @@
 ---
 title: "U.S. Politician’s Twitter Habits"
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
 author: "Johannes Carlsen"
 date: "5/18/2019"
 output: html_document
