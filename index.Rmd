@@ -1,12 +1,12 @@
 ---
-title: "U.S. Politician’s Twitter Habits"
+title: "Investigating U.S. Politicians' Twitter Habits"
 knit: (function(input_file, encoding) {
   out_dir <- 'docs';
   rmarkdown::render(input_file,
  encoding=encoding,
  output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
-author: "Johannes Carlsen"
-date: "5/18/2019"
+author: "Johannes Carlsen, Ben Westermeyer"
+date: "5/20/2019"
 output: html_document
 ---
 
@@ -14,22 +14,23 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+# Introduction
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+# Research Questions
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+1. What patterns emerge when politicians' tweets are clustered based on the style of their tweets?
+2. How partisan is the language of politicians' twitter accounts?
+3. Is a politician's twitter activity related to his or her political activity?
+4. What happens when we apply bot-detection models to politicians' tweets?
 
-```{r cars}
-summary(cars)
-```
+### What patterns emerge when politicians' tweets are clustered based on the style of their tweets?
 
-## Including Plots
+### How partisan is the language of politicians' twitter accounts?
 
-You can also embed plots, for example:
+### Is a politician's twitter activity related to his or her political activity?
 
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
+### What happens when we apply bot-detection models to politicians' tweets?
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+# Conclusion
+
+
