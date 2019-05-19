@@ -25,9 +25,376 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ### What patterns emerge when politicians' tweets are clustered based on the style of their tweets?
 
-### How partisan is the language of politicians' twitter accounts?
 
-### Is a politician's twitter activity related to his or her political activity?
+### 2. How partisan is the language of politicians' twitter accounts?
+
+In this section, we analyze whether Republicans and Democrats tend to communicate with their bases in fundamentally different ways. Does the sentiment, syntax, structure, or style of a Bernie Sanders tweet differ drastically from a Mitch McConnell tweet? We use the text features package to extract this kind of information from a congressperson's tweets, and use it to predict their political party.
+
+There are three main types of text feature variables that we use as predictors:
+* Sentiment Analysis: Identifies emotion of text
+* Word2Vec: Transforms words into vectors in a vector space. Words that share common contexts are positioned in close proximity to each other in the vector space
+* Parts of Speech: Counts parts of speech used, length of words, punctuation etc.
+
+```{r,message=FALSE}
+library(rtweet)
+library(httpuv)
+library(readr)
+library(purrr)
+library(dplyr)
+library(randomForest)
+library(textfeatures)
+library(cluster)
+library(factoextra)
+library(ggrepel)
+library(class)
+library(ranger)
+library(rjson)
+library(FNN)
+library(gbm)
+library(doBy)
+library(tidyr)
+library(adabag)
+```
+
+Read in congresss twitter and party data.
+```{r,message=FALSE}
+congress.df <- read_csv("data/legislators-current.csv")
+congress.df <- congress.df[,c("govtrack_id","full_name","party","twitter")]
+# Remove everyone without a twitter
+congress.df <- filter(congress.df,!is.na(twitter))
+# Brownley's twitter handle has changed
+congress.df$twitter <- ifelse(congress.df$twitter=="JuliaBrownley26","RepBrownley",congress.df$twitter)
+# Rob Bishop has never tweeted, so we should remove him
+congress.df <- congress.df[congress.df$twitter!="RepRobBishop",]
+# same with Roger Marshall
+congress.df <- congress.df[congress.df$twitter!="RepMarshall",]
+```
+
+Use Twitter's API to get the 100 most recent tweets from each of the 529 congressmembers with active twitter acccounts.
+```{r}
+#timeline <- get_timelines(congress.df$twitter, n = 100,check=FALSE)
+
+# Save the dataset created by the query so we don't have to run it every time
+#saveRDS(timeline,file="Desktop/ADM R/Final Project/congress_timeline.rds")
+# Now read it in
+timeline <- readRDS(file="cache/congress_timeline.rds")
+```
+
+Get text features from the tweets using textfeatures package.
+```{r}
+#text_features <- textfeatures(timeline$text,normalize = TRUE,word_dims=50)
+#saveRDS(text_features,file="Desktop/ADM R/Final Project/congress_text_features.rds")
+text_features <- readRDS(file="cache/congress_text_features.rds")
+
+# Add screen_name back into text features dataset
+features.df <- cbind(twitter=timeline$screen_name,text_features)
+```
+
+Make sure we correct for any case sensitivity problems that arose during our query.
+```{r}
+# Check if the screen_names from timeline query match the names from congress dataset
+first <- as.character(congress.df$twitter)
+second <- as.character(unique(features.df$twitter))
+compare <- cbind.data.frame(first,second)
+mismatch <- compare[first!=second,]
+# looks like 55 twitter handles don't match because of case sensitivity
+
+# We need to replace the twitter column in congress.df with the screen_names
+# from the timeline dataset
+congress.df$twitter <- second
+# now it should match the timeline screen names
+sum(congress.df$twitter!=as.character(unique(timeline$screen_name)))
+```
+
+Now create the party variable, which will be our response variable.
+```{r}
+#merge in party information
+congressfeatures.df <- merge(congress.df,features.df,by="twitter")
+
+# Change party variable to binary
+# Democrat and will be 0 
+# Ind will also be 0 (Sen. Sanders and Sen. King both caucus with the democrats)
+# Republicans will be 1
+congressfeatures.df$partyind <- ifelse(congressfeatures.df$party=="Republican",1,0)
+congressfeatures.df$party <- congressfeatures.df$partyind
+congressfeatures.df <- select(congressfeatures.df,-partyind)
+
+# we don't want twitter handles, IDs, or names as predictors
+congressfeatures.df <- select(congressfeatures.df,-c(govtrack_id,twitter,full_name))
+```
+
+Create train and test datasets.
+Note: we do not do cross validation in this section because the data is too large to do CV in a reasonable amount of time.
+```{r}
+party.N <- nrow(congressfeatures.df)
+party.train <- sample(1:party.N,party.N/2,rep=F)
+party.train.df <- congressfeatures.df[party.train,]
+party.test.df <- congressfeatures.df[-party.train,]
+```
+
+### Logistic Regression
+```{r}
+party.logmod <- glm(party~.,family="binomial",data=party.train.df)
+party.logprobs <- predict(party.logmod,newdata=party.test.df,type="response")
+party.logpreds <- ifelse(party.logprobs>0.5,1,0)
+    
+# confusion matrix
+with(party.test.df,table(party, party.logpreds))
+(party.logerr <- with(party.test.df,mean(party!=party.logpreds)))
+```
+
+### Random Forest
+```{r}
+party.rfmod <- ranger(party~.,
+                num.trees=300,
+                data=party.train.df)
+
+party.rfpredinfo <- predict(party.rfmod,data=party.test.df)
+party.rfprobs <- party.rfpredinfo$predictions
+party.rfpreds <- ifelse(party.rfprobs>0.5,1,0)
+
+# confusion matrix
+with(party.test.df,table(party, party.rfpreds))
+(party.rferr <- mean(party.test.df$party!=party.rfpreds))
+```
+
+### Boosting
+```{r}
+party.gbmmod <- gbm(party ~ ., data=party.train.df,
+                n.trees=300,
+                distribution="bernoulli",
+                #distribution="adaboost",
+                interaction.depth = 2,
+                shrinkage=0.1)
+             
+
+party.gbmprobs <- predict(party.gbmmod,newdata=party.test.df,n.trees=300,type="response")
+party.gbmpreds <- ifelse(party.gbmprobs > 0.5,1,0)
+
+with(party.test.df,table(party, party.gbmpreds))
+(party.gbmerr <- mean(party.test.df$party!=party.gbmpreds))
+```
+
+Create a variable importance plot from the boosting model using ggplot. Show the top 20 most important variables.
+```{r}
+gbmImp <- varImp(party.gbmmod, scale = TRUE, numTrees=300)
+impvals <- as.vector(gbmImp$Overall)
+varnames <- as.vector(row.names(gbmImp))
+gbminfo <- cbind(Variable=varnames,Importance=as.numeric(impvals))
+gbminfo <- as.data.frame(gbminfo)
+gbminfo$Variable <- as.character(gbminfo$Variable)
+gbminfo$Importance <- as.character(gbminfo$Importance)
+gbminfo$Importance <- as.numeric(gbminfo$Importance)
+gbminfo <- gbminfo[order(gbminfo$Importance,decreasing=TRUE),]
+gbminfo <- gbminfo[1:20,]
+
+ggplot(data=gbminfo, aes(x=Variable,y=Importance)) +
+  geom_bar(stat="identity") + 
+  coord_flip() +
+  scale_x_discrete(
+    limits=gbminfo$Variable,
+    labels=gbminfo$Variable 
+  )+
+  ggtitle("Variable Importance Plot for Predicting Party")+
+  xlab("Variables")+
+  ylab("Relative Importance")
+```
+
+Compare the error rate of the logistic, random foreset, and boosting algorithms.
+```{r}
+c(Logistic=party.logerr,RandomForest=party.rferr,Boosting=party.gbmerr)
+```
+
+All three algorithms we used have very error rates, but random forest typically performs best. It is very interesting that we are able to somewhat successfully predict the party of a congressperson just based on the structure of their tweets. This indicates that Democrats and Republicans really do have some fundamental differences in the way that they communicate with their bases.
+
+The plot shows that the number of lower case letters in a tweet (n_lowers) is by far the strongest predictor of the tweeter's political party. It is followed by a sentiment metric (sent_vader), number of hashtags (n_hashtags), the number of polite words (n_polite), and the number of characters per word (n_charsperword). The importance of these variables indicates that he style, emotion, and complexity of a tweet can be used to determine which political party the tweeter belongs to.
+
+### 3. Is a politician's twitter activity related to his or her political activity?
+
+In this section, we explore the relationship between a politician's activity on twitter and their activity on Capitol Hill. Do politicians with a greater Twitter presence get more done in the legislature? We use congresspeople's average number of favorites, retweets, tweeting frequency, and number of followers to predict how prolific they are in congress.
+
+Govtrack has data on the number of bills that each congressperson has introduced or cosponsored during the 116th United States Congress. It can be found here: https://www.govtrack.us/data/analysis/by-congress/116/
+
+Read in the data on congress twitter profiles and legislative productivity.
+```{r,message=FALSE}
+# Sponsorship data
+sponsorshipanalysis_s <- read_csv("data/sponsorshipanalysis_s.txt")
+sponsorshipanalysis_h <- read_csv("data/sponsorshipanalysis_h.txt")
+# Combine house and senate
+sponsorship.df <- rbind(sponsorshipanalysis_s,sponsorshipanalysis_h)
+```
+
+Get one tweet from each congressperson just so we can access the date their account was created, the date of their most recent tweet, and their number of followers.
+```{r}
+#profiles <- get_timelines(congress.df$twitter, n = 1,check=FALSE)
+#saveRDS(profiles,file="Desktop/ADM R/Final Project/congress_profiles.rds")
+# Now read it in
+profiles <- readRDS(file="cache/congress_profiles.rds")
+```
+
+Create tweet frequency, average tweet RT count, average tweet favorite count, and follower count variables.
+```{r}
+profiles$tweetfreq <- 
+  as.numeric(profiles$statuses_count)/as.numeric(profiles$created_at-profiles$account_created_at)
+
+profiles <- profiles[,c("screen_name","followers_count","tweetfreq")]
+
+# Now let's get average RT and favorite variables from recent tweets
+timeline <- as.data.frame(timeline)
+rtsummary <- summaryBy(cbind(favorite_count,retweet_count)~screen_name,data=timeline,FUN=mean)
+
+tweetinfo <- merge(x=rtsummary,y=profiles,by="screen_name")
+
+# Get govtrack ID from congress dataset
+moreinfo <- merge(x=congress.df,y=tweetinfo,by.x="twitter",by.y="screen_name")
+
+# Merge in the productivity info using the govtrack ID
+productivity.df <- merge(x=moreinfo,y=sponsorship.df,by.x="govtrack_id",by.y="ID")
+productivity.df <- productivity.df[,c(5:8,14)]
+#productivity.df <- data.frame(scale(productivity.df))
+
+colnames(productivity.df) <- 
+  c("Average_Favorite_Count","Average_Retweet_Count","Followers","Tweet_Frequency","Bills_Introduced")
+```
+
+Now we can predict a congressperson's number of bills introduced using specs from their twitter profiles.
+
+### KNN
+
+Write MSE cross validation function.
+```{r}
+knnMSE <- function(k,numFolds){
+  
+  N<-nrow(productivity.df)
+  folds<-sample(1:numFolds,N,rep=T)
+  
+  mseKFold<-numeric(numFolds)
+  
+  for(fold in 1:numFolds){
+    
+    train.dat  <- productivity.df[folds != fold,1:4]
+    train.y <- productivity.df$Bills_Introduced[folds != fold]
+    test.dat   <- productivity.df[folds == fold,1:4]
+    test.y <- productivity.df$Bills_Introduced[folds == fold]
+    
+    mod.cv  <- knn.reg(train.dat,test.dat,train.y,k=k)
+    
+    #test.df$pred <- predict(mod.cv,newdata=test.df)  
+    mseKFold[fold] <- mean((test.y-mod.cv$pred)^2)
+    
+  }
+  mse.kfold <- mean(mseKFold)
+}
+
+```
+
+Try k values from 1 to 50.
+```{r}
+knnmses <- numeric(50)
+for(i in 1:50){
+  knnmses[i] <- knnMSE(i,10)
+}
+
+# report the best MSE and the k value used to get it
+product.knnerr <- min(knnmses)
+c(k=which.min(knnmses),MSE=product.knnerr)
+```
+
+### Random Forest
+
+Write MSE cross validation function.
+```{r}
+rfMSE <- function(mtry,numTrees,numFolds){
+  
+  N<-nrow(productivity.df)
+  folds<-sample(1:numFolds,N,rep=T)
+  
+  mseKFold<-numeric(numFolds)
+  
+  for(fold in 1:numFolds){
+    
+    train.df  <- productivity.df[folds != fold,]
+    test.df   <- productivity.df[folds == fold,]
+    
+    mod.cv  <- 
+      ranger(Bills_Introduced~Average_Favorite_Count+Average_Retweet_Count+Followers+Tweet_Frequency,
+                 num.trees = numTrees,
+                 mtry=mtry,
+                 importance="impurity",
+                 data=train.df)
+    
+    predinfo <- predict(mod.cv,data=test.df)
+    preds <- predinfo$predictions
+    err <- with(test.df,mean((Bills_Introduced-preds)^2))
+    
+    mseKFold[fold] <- err
+    
+  }
+  mse.kfold <- mean(mseKFold)
+}
+
+```
+
+Try a range of mtry and numtree parameter values.
+```{r}
+mvals <- seq(1,4)
+treevals <- seq(100,300,50)
+grid <- expand.grid(mvals,treevals)
+
+rfmses <- numeric(nrow(grid))
+for(i in 1:nrow(grid)){
+  m <- grid[i,1]
+  trees <- grid[i,2]
+  mse <- rfMSE(m,trees,10)
+  rfmses[i] <- mse
+}
+
+# report the best MSE and the parameters used to get it
+product.rferr <- min(rfmses)
+bestmtry <- grid[which.min(rfmses),1]
+bestnumtrees <- grid[which.min(rfmses),2]
+c(mtry=bestmtry,numtrees=bestnumtrees,MSE=product.rferr)
+```
+
+Create a model using the best parameters and look at a variable importance plot.
+```{r}
+train <- sample(1:nrow(productivity.df),nrow(productivity.df)/2,replace = F)
+product.train.df <- productivity.df[train,]
+product.test.df <- productivity.df[-train,]
+
+product.rfmod <- ranger(Bills_Introduced~
+                Average_Favorite_Count+Average_Retweet_Count+Followers+Tweet_Frequency,
+                mtry <- bestmtry,
+                num.trees = bestnumtrees,
+                importance="impurity",
+                data=product.train.df)
+
+varimp <- as.data.frame(product.rfmod$variable.importance)
+colnames(varimp) <- "Importance"
+varimp$Variable <- rownames(varimp)
+
+ggplot(varimp, aes(x=reorder(Variable,Importance), y=Importance,fill=Importance))+ 
+  geom_bar(stat="identity", position="dodge")+ coord_flip()+
+  ylab("Variable Importance")+
+  xlab("")+
+  ggtitle("Variable Importance Plot for Predicting Legislative Productivity")+
+  guides(fill=F)
+```
+
+The number of followers is by far the strongest predictor of how many bills a congressperson will introduce to congress. The frequency at which a person tweets and the numer of favorites and RTs they tend to receive are not quite as important.
+
+```{r}
+c("RF Error"=product.rferr,"KNN Error"=product.knnerr)
+```
+
+How good of predictions are these? We can look at the RMSEs and compare them to the standard deviation of the response variable to get a better idea of how accurate they are.
+
+```{r}
+sqrt(c(product.knnerr,product.rferr))
+sd(productivity.df$Bills_Introduced)
+```
+
+Random forest and KNN will both on average predict a value of bills within one standard deviation of the correct value. It is still not a super accurate prediction, but it can get within a reasonable range of the actual number of bills a congressperson will introduce.
 
 ### What happens when we apply bot-detection models to politicians' tweets?
 
