@@ -28,7 +28,8 @@ library(tidyr)
 library(adabag)
 
 ###############################################################################
-# SET UP
+# RESEARCH QUESTION 2: PREDICTING LEGISLATIVE PRODUCTIVITY
+# BASED ON TWEET FREQUENCY AND POPULARITY
 ###############################################################################
 
 congress.df <- read_csv("Desktop/ADM R/Final Project/legislators-current.csv")
@@ -42,43 +43,9 @@ congress.df <- congress.df[congress.df$twitter!="RepRobBishop",]
 # same with Roger Marshall
 congress.df <- congress.df[congress.df$twitter!="RepMarshall",]
 
-
-
-###############################################################################
-# RESEARCH QUESTION 1: PREDICTING PARTY BASED ON TWEET STRUCTURE
-###############################################################################
-
-# Get the 100 most recent tweets from
-# each of the 529 congressmembers with active twitters
-#timeline <- get_timelines(congress.df$twitter, n = 100,check=FALSE)
-
-# Make sure we didn't lose any congressmembers in the query process
-#screen_names <- c(unique(timeline$screen_name))
-#compare <- cbind.data.frame(congress.df$twitter,screen_names)
-
-# Save the dataset created by the query so we don't have to run it every time
-#saveRDS(timeline,file="Desktop/ADM R/Final Project/congress_timeline.rds")
-# Now read it in
-timeline <- readRDS(file="Desktop/ADM R/Final Project/congress_timeline.rds")
-
-# Get text features
-# note: word_dims creates vectors
-# which are numerical representations of word features
-# such as the context of individual words
-#text_features <- textfeatures(timeline$text,normalize = TRUE,word_dims=50)
-#saveRDS(text_features,file="Desktop/ADM R/Final Project/congress_text_features.rds")
-text_features <- readRDS(file="Desktop/ADM R/Final Project/congress_text_features.rds")
-
-# Combine info we got from get_timeline with info we got from textfeatures
-#names(timeline)
-#timeline.numeric <- dplyr::select_if(timeline,is.numeric)
-#timeline.numeric <- data.frame(scale(timeline.numeric))
-#timeline.numeric <- cbind(handle=timeline$screen_name,timeline.numeric)
-#features.df <- cbind(timeline.numeric, textfeatures.numeric)
+timeline <- readRDS(file="cache/congress_timeline.rds")
+text_features <- readRDS(file="cache/congress_text_features.rds")
 features.df <- cbind(twitter=timeline$screen_name,text_features)
-#names(features.df)
-
-# Now we need to bring back in the party variable from the congress dataset
 
 # Let's see if the screen_names from timeline query match the names from congress dataset
 first <- as.character(congress.df$twitter)
@@ -93,28 +60,9 @@ congress.df$twitter <- second
 # now it should match the timeline screen names
 sum(congress.df$twitter!=as.character(unique(timeline$screen_name)))
 
-# now we can merge
-congressfeatures.df <- merge(congress.df,features.df,by="twitter")
-
-# Change party variable to binary
-# Democrat and will be 0 
-# Ind will also be 0 (Sen. Sanders and Sen. King both caucus with the democrats)
-# Republicans will be 1
-congressfeatures.df$partyind <- ifelse(congressfeatures.df$party=="Republican",1,0)
-congressfeatures.df$party <- congressfeatures.df$partyind
-congressfeatures.df <- select(congressfeatures.df,-partyind)
-
-# we don't want twitter handles and names as predictors
-congressfeatures.df <- select(congressfeatures.df,-c(govtrack_id,twitter,full_name))
-
-###############################################################################
-# RESEARCH QUESTION 2: PREDICTING LEGISLATIVE PRODUCTIVITY
-# BASED ON TWEET FREQUENCY AND POPULARITY
-###############################################################################
-
 # Legislative records from https://www.govtrack.us/data/analysis/by-congress/116/
-sponsorshipanalysis_s <- read_csv("Desktop/ADM R/Final Project/sponsorshipanalysis_s.txt")
-sponsorshipanalysis_h <- read_csv("Desktop/ADM R/Final Project/sponsorshipanalysis_h.txt")
+sponsorshipanalysis_s <- read_csv("data/sponsorshipanalysis_s.txt")
+sponsorshipanalysis_h <- read_csv("data/sponsorshipanalysis_h.txt")
 sponsorship.df <- rbind(sponsorshipanalysis_s,sponsorshipanalysis_h)
 
 #Leadership score is computed for each Member of Congress 
@@ -123,7 +71,7 @@ sponsorship.df <- rbind(sponsorshipanalysis_s,sponsorshipanalysis_h)
 #profiles <- get_timelines(congress.df$twitter, n = 1,check=FALSE)
 #saveRDS(profiles,file="Desktop/ADM R/Final Project/congress_profiles.rds")
 # Now read it in
-profiles <- readRDS(file="Desktop/ADM R/Final Project/congress_profiles.rds")
+profiles <- readRDS(file="cache/congress_profiles.rds")
 
 profiles$tweetfreq <- 
   as.numeric(profiles$statuses_count)/as.numeric(profiles$created_at-profiles$account_created_at)
@@ -141,59 +89,128 @@ moreinfo <- merge(x=congress.df,y=tweetinfo,by.x="twitter",by.y="screen_name")
 
 # Finally, merge in the productivity info
 productivity.df <- merge(x=moreinfo,y=sponsorship.df,by.x="govtrack_id",by.y="ID")
+productivity.df <- productivity.df[,c(5:8,14)]
+#productivity.df <- data.frame(scale(productivity.df))
 
-#productivity.df <- productivity.df[,-c(1:4,10:12)]
-mod1 <- lm(introduced_bills_116~tweetfreq+favorite_count.mean+retweet_count.mean+followers_count,data=productivity.df)
-summary(mod1)
-preds <- predict(mod1,newdata=productivity.df)
-mean((productivity.df$introduced_bills_116-preds)^2)
+colnames(productivity.df) <- 
+  c("Average_Favorite_Count","Average_Retweet_Count","Followers","Tweet_Frequency","Bills_Introduced")
+
+# KNN
+
+knnMSE <- function(k,numFolds){
+  
+  N<-nrow(productivity.df)
+  folds<-sample(1:numFolds,N,rep=T)
+  
+  mseKFold<-numeric(numFolds)
+  
+  for(fold in 1:numFolds){
+    
+    train.dat  <- productivity.df[folds != fold,1:4]
+    train.y <- productivity.df$Bills_Introduced[folds != fold]
+    test.dat   <- productivity.df[folds == fold,1:4]
+    test.y <- productivity.df$Bills_Introduced[folds == fold]
+    
+    mod.cv  <- knn.reg(train.dat,test.dat,train.y,k=k)
+    
+    #test.df$pred <- predict(mod.cv,newdata=test.df)  
+    mseKFold[fold] <- mean((test.y-mod.cv$pred)^2)
+    
+  }
+  mse.kfold <- mean(mseKFold)
+}
+
+# Try k values from 1 to 50
+knnmses <- numeric(50)
+for(i in 1:50){
+  knnmses[i] <- knnMSE(i,10)
+}
+
+# report the best MSE and the k value used to get it
+product.knnerr <- min(knnmses)
+c(k=which.min(knnmses),MSE=product.knnerr)
 
 
-N <- nrow(productivity.df)
-train <- sample(1:N,N/2,rep=F)
-train.df <- productivity.df[train,]
-test.df <- productivity.df[-train,]
+# RANDOM FOREST
+rfMSE <- function(mtry,numTrees,numFolds){
+  
+  N<-nrow(productivity.df)
+  folds<-sample(1:numFolds,N,rep=T)
+  
+  mseKFold<-numeric(numFolds)
+  
+  for(fold in 1:numFolds){
+    
+    train.df  <- productivity.df[folds != fold,]
+    test.df   <- productivity.df[folds == fold,]
+    
+    mod.cv  <- 
+      ranger(Bills_Introduced~Average_Favorite_Count+Average_Retweet_Count+Followers+Tweet_Frequency,
+                 num.trees = numTrees,
+                 mtry=mtry,
+                 importance="impurity",
+                 data=train.df)
+    
+    predinfo <- predict(mod.cv,data=test.df)
+    preds <- predinfo$predictions
+    err <- with(test.df,mean((Bills_Introduced-preds)^2))
+    
+    mseKFold[fold] <- err
+    
+  }
+  mse.kfold <- mean(mseKFold)
+}
 
-train.dat <- train.df[c(5:8)] 
-ytrain <- train.df$introduced_bills_116
-test.dat <- test.df[c(5:8)] 
-ytest <- test.df$introduced_bills_116
+mvals <- seq(1,4)
+treevals <- seq(100,300,50)
+grid <- expand.grid(mvals,treevals)
 
-knnregmod <- knn.reg(train.dat,test.dat,ytrain,k=3)
-mean((ytest-knnregmod$pred)^2)
+rfmses <- numeric(nrow(grid))
+for(i in 1:nrow(grid)){
+  m <- grid[i,1]
+  trees <- grid[i,2]
+  mse <- rfMSE(m,trees,10)
+  rfmses[i] <- mse
+}
 
+# report the best MSE and the parameters used to get it
+product.rferr <- min(rfmses)
+bestmtry <- grid[which.min(rfmses),1]
+bestnumtrees <- grid[which.min(rfmses),2]
+c(mtry=bestmtry,numtrees=bestnumtrees,MSE=product.rferr)
 
-# Random Forest
-rfmod <- ranger(introduced_bills_116~
-                  tweetfreq+favorite_count.mean+retweet_count.mean+followers_count,
-                data=train.df)
-predinfo <- predict(rfmod,data=test.df)
-preds <- predinfo$predictions
+# Let's create a model using the best parameters and look at a variable importance plot
 
-sqrt(mean((test.df$introduced_bills_116-preds)^2))
-sd(test.df$introduced_bills_116)
+train <- sample(1:nrow(productivity.df),nrow(productivity.df)/2,replace = F)
+product.train.df <- productivity.df[train,]
+product.test.df <- productivity.df[-train,]
 
-# Random forest on average will predict a value
+product.rfmod <- ranger(Bills_Introduced~
+                Average_Favorite_Count+Average_Retweet_Count+Followers+Tweet_Frequency,
+                mtry <- bestmtry,
+                num.trees = bestnumtrees,
+                importance="impurity",
+                data=product.train.df)
+
+varimp <- as.data.frame(product.rfmod$variable.importance)
+colnames(varimp) <- "Importance"
+varimp$Variable <- rownames(varimp)
+
+ggplot(varimp, aes(x=reorder(Variable,Importance), y=Importance,fill=Importance))+ 
+  geom_bar(stat="identity", position="dodge")+ coord_flip()+
+  ylab("Variable Importance")+
+  xlab("")+
+  ggtitle("Importance of Twitter Profile Features in Predicting Congressperson's Legislative Productivity")+
+  guides(fill=F)
+
+# The number of followers is by far the strongest predictor of how many bills
+# A congressperson wlil introduce to congress
+# the frequency at which a person tweets and the numer of favorites and RTS
+# they tend to receive are not as important.
+
+c("RF Error"=product.rferr,"KNN Error"=product.knnerr)
+
+# Random forest and KNN will both on average predict a value of bills
 # within one standard deviation of the correct value
-
-
-
-productivity.df %>%
-ggplot()+
-  geom_point(aes(x=tweetfreq,y=introduced_bills_116))
-
-
-
-gbm.legmod <- gbm(introduced_bills_116 ~ tweetfreq+favorite_count.mean+retweet_count.mean+followers_count, 
-              data=train.df,
-              n.trees=300,
-              distribution="gaussian",
-              interaction.depth = 2,
-              shrinkage=0.1)
-
-gbmprobs <- predict(gbm.legmod,newdata=test.df,n.trees=300,type="response")
-gbmpreds <-  ifelse(gbmprobs > 0.5,1,0)
-
-(gbmerr <- mean((test.df$introduced_bills_116-gbmpreds)^2))
-
-
+sqrt(c(product.knnerr,product.rferr))
+sd(productivity.df$Bills_Introduced)
