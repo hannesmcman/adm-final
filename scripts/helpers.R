@@ -30,6 +30,7 @@ showCluster <- function (K, data.df, labels, num) {
   mod.km <- kmeans(dataRot.df,K,nstart=25)
   dataRot.df$cluster <- factor(mod.km$cluster)
   dataRot.df$label <- labels
+  print(table(dataRot.df$cluster))
   plotData.df <- dataRot.df %>% group_by(cluster) %>% add_tally() ##%>% sample_n(size = n)
   plotData.df <- plotData.df %>% sample_n(size = min(c(mean(n), num)))
   plotData.df%>%
@@ -117,4 +118,14 @@ get_twitter_user_nlp_data_no_w2v <- function (screen_name) {
     ret <- as.data.frame(t(modes))
   }
   ret
+}
+
+how_bot_like <- function (user_name, n, model.rf) {
+  tweets.df <- get_timeline(user_name, n = n, check = FALSE)
+  text_features <- textfeatures(tweets.df$text)
+  features_in_model <- model.rf$forest$independent.variable.names
+  text_features <- text_features[,features_in_model]
+  pred <- predict(model.rf, data = text_features)
+  preds <- predictions(pred)
+  mean(!as.logical(preds))
 }

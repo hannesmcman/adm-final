@@ -89,6 +89,8 @@ social_spambot_tweets_1 <- read_csv("data/cresci-2017/datasets_full/social_spamb
 social_spambot_users_2 <- read_csv("data/cresci-2017/datasets_full/social_spambots_2/users.csv")
 social_spambot_tweets_2 <- read_csv("data/cresci-2017/datasets_full/social_spambots_2/tweets.csv")
 
+
+
 names(social_spambot_users_1)
 names(real_users)
 
@@ -106,30 +108,18 @@ combined_tweets <- dplyr::select(combined_tweets, -vars_in_both)
 combined_both.test <- merge(combined_users[test_users,], combined_tweets, by.x = "id", by.y = "user_id")
 combined_both.train <- merge(combined_users[-test_users,], combined_tweets, by.x = "id", by.y = "user_id")
 
-
-# combined_both <- merge(combined_users, combined_tweets, by.x = "id", by.y = "user_id")
-filter_na_columns <- function (data.df, max_nas) {
-  num_nas <- map_dbl(1:ncol(data.df), function (colNum) {
-    sum(is.na(data.df[,colNum]))
-  })
-  names(num_nas) <- names(data.df)
-  print(num_nas)
-  cols_with_too_many_nas <- which(num_nas > max_nas)
-  data.filtered <- data.df[,-cols_with_too_many_nas]
-  (na.omit(data.filtered))
-}
-
-names(combined_both.train)[1] <- "user_id"
-num_nas <- map_dbl(1:ncol(combined_both.train), function (colNum) {
-  sum(is.na(combined_both.train[,colNum]))
-})
-
-names(num_nas) <- names(combined_both.train)
-num_nas
-
-cols_with_too_many_nas <- which(num_nas > 12662)
-combined_both.train.filtered <- combined_both.train[,-cols_with_too_many_nas]
-combined_both.train.filtered <- na.omit(combined_both.train.filtered)
+# names(combined_both.train)[1] <- "user_id"
+# num_nas <- map_dbl(1:ncol(combined_both.train), function (colNum) {
+#   sum(is.na(combined_both.train[,colNum]))
+# })
+# 
+# names(num_nas) <- names(combined_both.train)
+# num_nas
+# 
+# cols_with_too_many_nas <- which(num_nas > 12662)
+# combined_both.train.filtered <- combined_both.train[,-cols_with_too_many_nas]
+# combined_both.train.filtered <- na.omit(combined_both.train.filtered)
+combined_both.train.filtered <- filter_na_columns(combined_both.train, 12662)
 # combined_both.train.filtered <- dplyr::select(combined_both.train.filtered, -c())
 names(combined_both.train.filtered)
 
@@ -265,8 +255,8 @@ with(test.textfeatures, mean(factor(real_user) != textfeatures.rf.preds))
 
 ## Ranger model limited to features that can be extracted from Trump's tweets
 
-djt <- get_timeline("realDonaldTrump", n = 3200)
-djt.text_features <- textfeatures(djt$text, word_dims = 50)
+djt <- get_timeline("realDonaldTrump", n = 100)
+djt.text_features <- textfeatures(djt$text)
 dim(djt.text_features)
 dim(train.textfeatures)
 text_features_in_trump <- intersect(names(train.textfeatures), names(djt.text_features))
@@ -281,7 +271,7 @@ mean(!as.logical(djt.rf.preds))
 textfeatures_in_trump.rf$forest$independent.variable.names
 
 how_bot_like <- function (user_name, n, model.rf) {
-  tweets.df <- get_timeline(user_name, n = n)
+  tweets.df <- get_timeline(user_name, n = n, check = FALSE)
   text_features <- textfeatures(tweets.df$text)
   features_in_model <- model.rf$forest$independent.variable.names
   text_features <- text_features[,features_in_model]
@@ -290,8 +280,29 @@ how_bot_like <- function (user_name, n, model.rf) {
   mean(!as.logical(preds))
 }
 
-how_bot_like("realDonaldTrump", 3200, textfeatures_in_trump.rf)
-how_bot_like("SenAmyKlobuchar", 3200, textfeatures_in_trump.rf)
+how_bot_like("realDonaldTrump", 100, textfeatures_in_trump.rf)
+how_bot_like("SenAmyKlobuchar", 100, textfeatures_in_trump.rf)
 
 amy <- get_timeline("SenAmyKlobuchar", n = 3200)
 amy.tf <- textfeatures(amy$text)
+
+legislators_bot_like <- map_dbl(pol_accounts.df$twitter, function (screen_name) {
+  how_bot_like(screen_name, 100, textfeatures_in_trump.rf)
+})
+
+plotData <- data.frame(name = pol_accounts.df$full_name, bot_score = legislators_bot_like)
+
+plotData %>%
+  top_n(20) %>%
+  arrange(bot_score) %>%
+  mutate(name = factor(name, levels = .$name)) %>%
+  ggplot( aes(name, bot_score) ) +
+    geom_segment( aes(x=name, xend = name, y=0, yend = bot_score), color="skyblue") +
+    geom_point( color="blue", size=2, alpha=0.6) +
+    theme_light() +
+    coord_flip() +
+    theme(
+      panel.grid.major.y = element_blank(),
+      panel.border = element_blank(),
+      axis.ticks.y = element_blank()
+    ) 
