@@ -24,6 +24,7 @@ knitr::opts_knit$set(progress = FALSE, verbose = FALSE)
 ```
 
 # Introduction
+Twitter enables politicians to concisely convey their policies, beliefs, and personalities to their constituents. We can learn a lot about the differences and similarities between politicians just by scrolling through their timelines. However, some patterns are still unobservable to the lay Twitter lurker. In this project, we use clustering and prediction algorithms to detect deeper patterns in the Twitter behavior of American politicians. The questions we ask address salient issues in politics, such as fake news, extreme partisanship, and unproductive lawmaking. What does Twitter have to do with all these problems? We address this in the following research questions.
 
 # Research Questions
 
@@ -128,7 +129,7 @@ In this section, we analyze whether Republicans and Democrats tend to communicat
 There are three main types of text feature variables that we use as predictors:
 1. Sentiment Analysis: Identifies emotion of text
 2. Word2Vec: Transforms words into vectors in a vector space. Words that share common contexts are positioned in close proximity to each other in the vector space
-3.d Parts of Speech: Counts parts of speech used, length of words, punctuation etc.
+3. Parts of Speech: Counts parts of speech used, length of words, punctuation etc.
 
 ```{r,message=FALSE, echo=FALSE}
 library(rtweet)
@@ -302,7 +303,7 @@ c(Logistic=party.logerr,RandomForest=party.rferr,Boosting=party.gbmerr)
 
 All three algorithms we used have very error rates, but random forest typically performs best. It is very interesting that we are able to somewhat successfully predict the party of a congressperson just based on the structure of their tweets. This indicates that Democrats and Republicans really do have some fundamental differences in the way that they communicate with their bases.
 
-The plot shows that the number of lower case letters in a tweet (n_lowers) is by far the strongest predictor of the tweeter's political party. It is followed by a sentiment metric (sent_vader), number of hashtags (n_hashtags), the number of polite words (n_polite), and the number of characters per word (n_charsperword). The importance of these variables indicates that he style, emotion, and complexity of a tweet can be used to determine which political party the tweeter belongs to.
+The plot shows that the number of lower case letters in a tweet (n_lowers) is by far the strongest predictor of the tweeter's political party. It is followed by a sentiment metric (sent_vader), number of hashtags (n_hashtags), the number of polite words (n_polite), and the number of characters per word (n_charsperword). The importance of these variables indicates that the style, emotion, and complexity of a tweet can be used to determine which political party the tweeter belongs to.
 
 ### Question #3: Is a politician's twitter activity related to his or her political activity?
 
