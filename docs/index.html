@@ -193,6 +193,7 @@ $(document).ready(function () {
 
 <div id="introduction" class="section level1">
 <h1>Introduction</h1>
+<p>Twitter enables politicians to concisely convey their policies, beliefs, and personalities to their constituents. We can learn a lot about the differences and similarities between politicians just by scrolling through their timelines. However, some patterns are still unobservable to the lay Twitter lurker. In this project, we use clustering and prediction algorithms to detect deeper patterns in the Twitter behavior of American politicians. The questions we ask address salient issues in politics, such as fake news, extreme partisanship, and unproductive lawmaking. What does Twitter have to do with all these problems? We address this in the following research questions.</p>
 </div>
 <div id="research-questions" class="section level1">
 <h1>Research Questions</h1>
@@ -307,7 +308,7 @@ fviz_pca_var(mod.pc)</code></pre>
 <div id="question-2-how-partisan-is-the-language-of-politicians-twitter-accounts" class="section level3">
 <h3>Question #2: How partisan is the language of politicians’ twitter accounts?</h3>
 <p>In this section, we analyze whether Republicans and Democrats tend to communicate with their bases in fundamentally different ways. Does the sentiment, syntax, structure, or style of a Bernie Sanders tweet differ drastically from a Mitch McConnell tweet? We use the text features package to extract this kind of information from a congressperson’s tweets, and use it to predict their political party.</p>
-<p>There are three main types of text feature variables that we use as predictors: 1. Sentiment Analysis: Identifies emotion of text 2. Word2Vec: Transforms words into vectors in a vector space. Words that share common contexts are positioned in close proximity to each other in the vector space 3.d Parts of Speech: Counts parts of speech used, length of words, punctuation etc.</p>
+<p>There are three main types of text feature variables that we use as predictors: 1. Sentiment Analysis: Identifies emotion of text 2. Word2Vec: Transforms words into vectors in a vector space. Words that share common contexts are positioned in close proximity to each other in the vector space 3. Parts of Speech: Counts parts of speech used, length of words, punctuation etc.</p>
 <p>Read in congresss twitter and party data.</p>
 <pre class="r"><code>congress.df &lt;- read_csv(&quot;data/legislators-current.csv&quot;)
 congress.df &lt;- congress.df[,c(&quot;govtrack_id&quot;,&quot;full_name&quot;,&quot;party&quot;,&quot;twitter&quot;)]
@@ -449,7 +450,7 @@ ggplot(data=gbminfo, aes(x=Variable,y=Importance)) +
 <pre><code>##     Logistic RandomForest     Boosting 
 ##    0.4151537    0.4002198    0.4090892</code></pre>
 <p>All three algorithms we used have very error rates, but random forest typically performs best. It is very interesting that we are able to somewhat successfully predict the party of a congressperson just based on the structure of their tweets. This indicates that Democrats and Republicans really do have some fundamental differences in the way that they communicate with their bases.</p>
-<p>The plot shows that the number of lower case letters in a tweet (n_lowers) is by far the strongest predictor of the tweeter’s political party. It is followed by a sentiment metric (sent_vader), number of hashtags (n_hashtags), the number of polite words (n_polite), and the number of characters per word (n_charsperword). The importance of these variables indicates that he style, emotion, and complexity of a tweet can be used to determine which political party the tweeter belongs to.</p>
+<p>The plot shows that the number of lower case letters in a tweet (n_lowers) is by far the strongest predictor of the tweeter’s political party. It is followed by a sentiment metric (sent_vader), number of hashtags (n_hashtags), the number of polite words (n_polite), and the number of characters per word (n_charsperword). The importance of these variables indicates that the style, emotion, and complexity of a tweet can be used to determine which political party the tweeter belongs to.</p>
 </div>
 <div id="question-3-is-a-politicians-twitter-activity-related-to-his-or-her-political-activity" class="section level3">
 <h3>Question #3: Is a politician’s twitter activity related to his or her political activity?</h3>
@@ -735,6 +736,7 @@ plotData %&gt;%
 </div>
 <div id="conclusion" class="section level1">
 <h1>Conclusion</h1>
+<p>In the age of social media, when the majority of Americans get much of their news from some combination of Twitter, Facebook and Instagram, it has become increasingly important to understand how our politicians use their social media accounts. In this paper, we applied both supervised and unsupervised machine learning methods to the twitter accounts of the current members of the U.S. Congress in an attempt to understand the patterns and correlations that exist beneath the surface of their tweets. We discovered that these legislators can be separated into two or three relatively distinct clusters based on the style of their tweets, with the majority living in the largest, densest cluster. This likely has to do with the fact that most politicians leave the handling of their twitter accounts to their PR staff, who tend to follow similar formulas, whereas others opt for the more “presidential” style, taking full control over their own accounts. We also found some evidence that supports the idea that Republicans and Democrats have different tweeting styles, but were unable to make a significant connection. However, we were able to detect a significant correlation between legislators’ twitter activity and the number of bills they introduce in Congress. Finally, we built a bot-detection model exclusively on the raw text of tweets that was extremely high-performing on a test dataset of tweets that were closely related to the training set, but far less accurate on the tweets of our U.S. Representatives. Overall, this paper contributes valuable insight into the importance and relevance of our politicians’ behaviors on Twitter and other social media platforms and the potential for machine learning to help us understand and analyze these behaviors.</p>
 </div>
 
 
